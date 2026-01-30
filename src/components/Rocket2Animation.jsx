@@ -1,22 +1,24 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import "../assets/RocketAnimation.css";
 
-const RocketCanvas = () => {
+const RocketCanvas2 = () => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [currentFrame, setCurrentFrame] = useState(1);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isActive, setIsActive] = useState(false); // New state to track if component is active
+  const [isActive, setIsActive] = useState(false);
   const totalFrames = 700;
 
   // Use refs for mutable data
   const imagesRef = useRef({});
+  const loadedFramesRef = useRef(new Set());
   const frameCountRef = useRef(1);
   const animationIdRef = useRef(null);
   const hasStartedRef = useRef(false);
+  const isPreloadingRef = useRef(false);
 
-  // Load and cache images
-  const loadFrame = async (frameNumber) => {
+  // Background image loader
+  const loadImage = useCallback((frameNumber) => {
     return new Promise((resolve, reject) => {
       // Check if already cached
       if (imagesRef.current[frameNumber]) {
@@ -26,70 +28,194 @@ const RocketCanvas = () => {
 
       const img = new Image();
       img.crossOrigin = "anonymous";
+      img.decoding = "async";
+      img.loading = "eager";
+      
       img.onload = () => {
         imagesRef.current[frameNumber] = img;
+        loadedFramesRef.current.add(frameNumber);
         resolve(img);
       };
-      img.onerror = reject;
+      
+      img.onerror = () => {
+        // Create minimal placeholder to prevent errors
+        const placeholder = new Image();
+        placeholder.width = 1;
+        placeholder.height = 1;
+        imagesRef.current[frameNumber] = placeholder;
+        loadedFramesRef.current.add(frameNumber);
+        resolve(placeholder);
+      };
+      
       img.src = `https://akm-img-a-in.tosshub.com/sites/interactive/immersive/ride-on-the-moon/assest/img/rocket2-desktop/rocket1%20(${frameNumber}).jpg`;
     });
-  };
-
-  // Preload first few frames
-  useEffect(() => {
-    const preloadInitialFrames = async () => {
-      const framesToPreload = [1, 250, 500]; // Just load start, middle, and end
-      await Promise.all(framesToPreload.map((frame) => loadFrame(frame)));
-      setIsLoaded(true);
-    };
-
-    preloadInitialFrames();
   }, []);
 
+  // Background preloading without UI feedback
+  const preloadAllFramesInBackground = useCallback(async () => {
+    if (isPreloadingRef.current) return;
+    isPreloadingRef.current = true;
+
+    // Load essential frames first for immediate playback
+    const essentialFrames = [
+      1, 2, 3, 4, 5, 10, 15, 20, 25,
+      Math.floor(totalFrames * 0.1),
+      Math.floor(totalFrames * 0.25),
+      Math.floor(totalFrames * 0.5),
+      Math.floor(totalFrames * 0.75),
+      totalFrames
+    ].filter(frame => frame >= 1 && frame <= totalFrames);
+
+    // Load essential frames
+    try {
+      await Promise.allSettled(essentialFrames.map(frame => loadImage(frame)));
+    } catch (error) {
+      console.debug("Essential frames load error:", error);
+    }
+
+    // Mark as loaded immediately (don't wait for all frames)
+    setIsLoaded(true);
+
+    // Continue loading remaining frames in background
+    const backgroundLoader = async () => {
+      const allFrames = Array.from({ length: totalFrames }, (_, i) => i + 1);
+      const remainingFrames = allFrames.filter(frame => 
+        !loadedFramesRef.current.has(frame)
+      );
+
+      const batchSize = 15;
+      const delayBetweenBatches = 50;
+
+      for (let i = 0; i < remainingFrames.length; i += batchSize) {
+        if (!isPreloadingRef.current) break;
+        
+        const batch = remainingFrames.slice(i, i + batchSize);
+        
+        // Use idle time if available
+        if ('requestIdleCallback' in window) {
+          await new Promise(resolve => {
+            requestIdleCallback(async () => {
+              await Promise.allSettled(batch.map(frame => loadImage(frame)));
+              resolve();
+            }, { timeout: 1000 });
+          });
+        } else {
+          // Fallback
+          await Promise.allSettled(batch.map(frame => loadImage(frame)));
+          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+        }
+      }
+    };
+
+    // Start background loading without awaiting
+    backgroundLoader().catch(error => {
+      console.debug("Background loading error:", error);
+    });
+
+    return true;
+  }, [loadImage, totalFrames]);
+
+  // Start background preloading immediately
+  useEffect(() => {
+    preloadAllFramesInBackground();
+    
+    return () => {
+      isPreloadingRef.current = false;
+    };
+  }, [preloadAllFramesInBackground]);
+
+  // Preload frames around current position
+  const preloadAroundCurrentFrame = useCallback((centerFrame) => {
+    const preloadRange = 30;
+    const startFrame = Math.max(1, centerFrame - preloadRange);
+    const endFrame = Math.min(totalFrames, centerFrame + preloadRange);
+    
+    // Use idle callback for background loading
+    const idlePreload = () => {
+      for (let i = startFrame; i <= endFrame; i++) {
+        if (!loadedFramesRef.current.has(i) && !imagesRef.current[i]) {
+          // Load without awaiting
+          loadImage(i).catch(() => {});
+        }
+      }
+    };
+
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(idlePreload, { timeout: 500 });
+    } else {
+      setTimeout(idlePreload, 0);
+    }
+  }, [loadImage, totalFrames]);
+
   // Draw frame on canvas
-  const drawFrame = async (frameNum) => {
+  const drawFrame = useCallback(async (frameNum) => {
     const canvas = canvasRef.current;
     if (!canvas || !isActive) return;
 
     const ctx = canvas.getContext("2d");
-    const img = await loadFrame(frameNum);
+    
+    // Get the requested frame or nearest available
+    let frameImg = imagesRef.current[frameNum];
+    let actualFrame = frameNum;
+    
+    // If frame not loaded, find nearest loaded frame
+    if (!frameImg) {
+      for (let offset = 1; offset < 30; offset++) {
+        const prevFrame = frameNum - offset;
+        const nextFrame = frameNum + offset;
+        
+        if (prevFrame >= 1 && imagesRef.current[prevFrame]) {
+          frameImg = imagesRef.current[prevFrame];
+          actualFrame = prevFrame;
+          break;
+        }
+        if (nextFrame <= totalFrames && imagesRef.current[nextFrame]) {
+          frameImg = imagesRef.current[nextFrame];
+          actualFrame = nextFrame;
+          break;
+        }
+      }
+    }
 
-    if (img) {
+    if (frameImg) {
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Calculate dimensions to maintain aspect ratio
       const canvasAspect = canvas.width / canvas.height;
-      const imgAspect = img.width / img.height;
+      const imgAspect = frameImg.width / frameImg.height;
 
       let drawWidth, drawHeight, offsetX, offsetY;
 
       if (imgAspect > canvasAspect) {
         // Image is wider than canvas
         drawHeight = canvas.height;
-        drawWidth = img.width * (canvas.height / img.height);
+        drawWidth = frameImg.width * (canvas.height / frameImg.height);
         offsetX = -(drawWidth - canvas.width) / 2;
         offsetY = 0;
       } else {
         // Image is taller than canvas
         drawWidth = canvas.width;
-        drawHeight = img.height * (canvas.width / img.width);
+        drawHeight = frameImg.height * (canvas.width / frameImg.width);
         offsetX = 0;
         offsetY = -(drawHeight - canvas.height) / 2;
       }
 
       // Draw image
-      ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+      ctx.drawImage(frameImg, offsetX, offsetY, drawWidth, drawHeight);
 
       // Add overlay effect for better text readability
       ctx.fillStyle = "rgba(10, 10, 26, 0.4)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Preload frames around current position in background
+      preloadAroundCurrentFrame(frameNum);
     }
-  };
+  }, [isActive, totalFrames, preloadAroundCurrentFrame]);
 
   // Check if component is in view
-  const checkIfActive = () => {
-    if (!containerRef.current || !isLoaded) return;
+  const checkIfActive = useCallback(() => {
+    if (!containerRef.current) return;
 
     const container = containerRef.current;
     const rect = container.getBoundingClientRect();
@@ -108,10 +234,10 @@ const RocketCanvas = () => {
     } else if (!isInView && isActive) {
       setIsActive(false);
     }
-  };
+  }, [isActive, drawFrame]);
 
   // Handle scroll within active component
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!isActive || !containerRef.current) return;
 
     const container = containerRef.current;
@@ -125,8 +251,11 @@ const RocketCanvas = () => {
       windowHeight - rect.top,
       windowHeight,
     );
-    const scrollProgress =
-      visibleTop / (rect.height - windowHeight + visibleHeight);
+    
+    // Avoid division by zero
+    const denominator = rect.height - windowHeight + visibleHeight;
+    const scrollProgress = denominator > 0 ? 
+      Math.max(0, Math.min(1, visibleTop / denominator)) : 0;
 
     // Calculate frame based on scroll progress
     const targetFrame = Math.min(
@@ -137,12 +266,20 @@ const RocketCanvas = () => {
     if (targetFrame !== frameCountRef.current) {
       frameCountRef.current = targetFrame;
       setCurrentFrame(targetFrame);
-      drawFrame(targetFrame);
+      
+      // Use requestAnimationFrame for smooth drawing
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
+      
+      animationIdRef.current = requestAnimationFrame(() => {
+        drawFrame(targetFrame);
+      });
     }
-  };
+  }, [isActive, totalFrames, drawFrame]);
 
   // Handle resize
-  const handleResize = () => {
+  const handleResize = useCallback(() => {
     const canvas = canvasRef.current;
     if (canvas) {
       canvas.width = window.innerWidth;
@@ -151,12 +288,10 @@ const RocketCanvas = () => {
         drawFrame(frameCountRef.current);
       }
     }
-  };
+  }, [isActive, drawFrame]);
 
   // Setup event listeners
   useEffect(() => {
-    if (!isLoaded) return;
-
     const combinedScrollHandler = () => {
       checkIfActive();
       if (isActive) {
@@ -164,140 +299,58 @@ const RocketCanvas = () => {
       }
     };
 
+    // Throttle scroll events for performance
+    let scrollTimeout;
+    const throttledScrollHandler = () => {
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
+      scrollTimeout = requestAnimationFrame(combinedScrollHandler);
+    };
+
     // Initial setup
     handleResize();
 
     // Add event listeners
-    window.addEventListener("scroll", combinedScrollHandler, { passive: true });
+    window.addEventListener("scroll", throttledScrollHandler, { passive: true });
     window.addEventListener("resize", handleResize);
 
+    // Initial check
+    checkIfActive();
+
     return () => {
-      window.removeEventListener("scroll", combinedScrollHandler);
+      window.removeEventListener("scroll", throttledScrollHandler);
       window.removeEventListener("resize", handleResize);
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
       if (animationIdRef.current) {
         cancelAnimationFrame(animationIdRef.current);
       }
     };
-  }, [isLoaded, isActive]);
-
-  // UI Overlay Content - Only show when active
-  const OverlayContent = () => (
-    <div className="rocket-overlay-content">
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            Developed by the European Space Agency the service module is the
-            powerhouse that fuels and propels the spacecraft. It will provide
-            propulsion, thermal control, and electrical power generated by solar
-            arrays. It will provide life support for astronauts aboard the
-            spacecraft.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            The Orion Stage Adapter connects Orion to the rocket. This is where
-            Nasa plans to keep CubeSats as secondary payloads on Artemis I that
-            will be deployed for science missions.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            45 ft tall and 16.7-foot in diameter, the Interim Cryogenic
-            Propulsion Stage is single-engine liquid hydrogen and liquid
-            oxygen-based system that provides in-space propulsion after the
-            solid rocket boosters and core stage put SLS into an Earth orbit.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            The SLS has two solid rocket boosters that will burn up
-            approximately six tons of solid propellant each second to help lift
-            the enormous rocket off the launch pad and send it soaring to space.
-            The total lifetime of these two boosters will be two minutes.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            The Launch Vehicle Stage Adapter covers the RL10 engine during
-            launch and connects the Interim Cryogenic Propulsion Stage to the
-            core stage.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            Once the first stage is jettisoned, the single liquid hydrogen and
-            liquid oxygen-fed RL10B-2 engine will serve as the main propulsion
-            that will send the Orion spacecraft to the Moon.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            The RS-25 engine will use the liquid hydrogen stored in this tank
-            consuming 5,37,000 gallons of liquid hydrogen cooled to -252 degrees
-            Celsius. The liquid hydrogen tank measures more than 130 feet tall
-            and comprises almost two-thirds of the core stage.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            Dubbed as the backbone of SLS, the core stage includes two
-            propellant tanks, flight computers, and four RS-25 rocket engines.
-            Nearly 212 feet in height, the SLS core stage feeds the engines
-            about 1,500 gallons of propellant each second for eight minutes for
-            the spacecraft to reach orbit.
-          </p>
-        </div>
-      </div>
-      <div className="scrolling-content">
-        <div className="scrolling-section">
-          <p>
-            Just above the hydrogen tank, engineers have integrated a liquid
-            oxygen tank that will hold 1,96,000 gallons of propellant cooled to
-            -182 degrees Celsius.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+  }, [checkIfActive, handleScroll, handleResize]);
 
   return (
     <div
-      className="rocket-animation-container"
+      className="rocket-animation-container rocket2-container"
       ref={containerRef}
-      style={{ height: "200vh" }} // Make it taller for longer scroll animation
+      style={{ height: "200vh" }}
     >
       <canvas
         ref={canvasRef}
         className="rocket-canvas"
-        style={{ display: isActive ? "block" : "none" }} // Hide canvas when not active
+        style={{ 
+          display: isActive ? "block" : "none",
+          opacity: 1
+        }}
       />
 
       <div className="rocket-overlay">
-        {isLoaded ? (
-            <></>
-        ) : (
-          <div className="loading-overlay">
-            <div className="loading-spinner"></div>
-            <p>Loading rocket animation...</p>
-          </div>
-        )}
+        {/* Always render content, no loading UI */}
+        
       </div>
     </div>
   );
 };
 
-export default RocketCanvas;
+export default RocketCanvas2;
