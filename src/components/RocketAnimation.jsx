@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import "../assets/RocketAnimation.css";
 
 const RocketCanvas = () => {
@@ -6,90 +6,240 @@ const RocketCanvas = () => {
   const containerRef = useRef(null);
   const [currentFrame, setCurrentFrame] = useState(1);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isActive, setIsActive] = useState(false); // New state to track if component is active
+  const [isActive, setIsActive] = useState(false);
   const totalFrames = 700;
 
   // Use refs for mutable data
   const imagesRef = useRef({});
+  const loadedFramesRef = useRef(new Set());
   const frameCountRef = useRef(1);
   const animationIdRef = useRef(null);
   const hasStartedRef = useRef(false);
+  const isPreloadingRef = useRef(false);
+  const preloadPromiseRef = useRef(null);
 
-  // Load and cache images
-  const loadFrame = async (frameNumber) => {
+  // Background image loader with no UI feedback
+  const loadImage = useCallback((frameNumber) => {
     return new Promise((resolve, reject) => {
-      // Check if already cached
+      // Skip if already loaded
       if (imagesRef.current[frameNumber]) {
         resolve(imagesRef.current[frameNumber]);
         return;
       }
 
       const img = new Image();
+      
+      // Optimize loading for background
       img.crossOrigin = "anonymous";
+      img.decoding = "async";
+      img.loading = "eager";
+      
       img.onload = () => {
         imagesRef.current[frameNumber] = img;
+        loadedFramesRef.current.add(frameNumber);
         resolve(img);
       };
-      img.onerror = reject;
+      
+      img.onerror = (error) => {
+        console.debug(`Background load failed for frame ${frameNumber}`, error);
+        // Create a small placeholder to prevent errors
+        const placeholder = new Image();
+        placeholder.width = 1;
+        placeholder.height = 1;
+        imagesRef.current[frameNumber] = placeholder;
+        loadedFramesRef.current.add(frameNumber);
+        resolve(placeholder);
+      };
+      
       img.src = `https://akm-img-a-in.tosshub.com/sites/interactive/immersive/ride-on-the-moon/assest/img/rocket/rocket1%20(${frameNumber}).jpg`;
     });
-  };
-
-  // Preload first few frames
-  useEffect(() => {
-    const preloadInitialFrames = async () => {
-      const framesToPreload = [1, 250, 500]; // Just load start, middle, and end
-      await Promise.all(framesToPreload.map((frame) => loadFrame(frame)));
-      setIsLoaded(true);
-    };
-
-    preloadInitialFrames();
   }, []);
 
-  // Draw frame on canvas
-  const drawFrame = async (frameNum) => {
+  // Intelligent background preloading with low priority
+  const preloadAllFramesInBackground = useCallback(async () => {
+    if (isPreloadingRef.current) return;
+    isPreloadingRef.current = true;
+
+    // Strategy: Load in small batches with delays to avoid blocking
+    const batchSize = 15; // Smaller batches for smoother background loading
+    const delayBetweenBatches = 100; // ms
+    
+    // Start with essential frames for immediate playback
+    const essentialFrames = [
+      1, 2, 3, 4, 5, 
+      Math.floor(totalFrames * 0.1),
+      Math.floor(totalFrames * 0.25),
+      Math.floor(totalFrames * 0.5),
+      Math.floor(totalFrames * 0.75),
+      totalFrames
+    ].filter(frame => frame >= 1 && frame <= totalFrames);
+
+    // Load essential frames first (these will be needed first)
+    try {
+      await Promise.allSettled(essentialFrames.map(frame => loadImage(frame)));
+    } catch (error) {
+      console.debug("Essential frames load error:", error);
+    }
+
+    // Mark as loaded for immediate UI display
+    setIsLoaded(true);
+
+    // Continue loading remaining frames in background with low priority
+    const allFrames = Array.from({ length: totalFrames }, (_, i) => i + 1);
+    const remainingFrames = allFrames.filter(frame => 
+      !loadedFramesRef.current.has(frame)
+    );
+
+    // Process remaining frames in background
+    const backgroundLoader = async () => {
+      for (let i = 0; i < remainingFrames.length; i += batchSize) {
+        const batch = remainingFrames.slice(i, i + batchSize);
+        
+        // Use low priority requestIdleCallback if available
+        if ('requestIdleCallback' in window) {
+          await new Promise(resolve => {
+            requestIdleCallback(async () => {
+              await Promise.allSettled(batch.map(frame => loadImage(frame)));
+              resolve();
+            }, { timeout: 1000 });
+          });
+        } else {
+          // Fallback to setTimeout for older browsers
+          await new Promise(resolve => setTimeout(resolve, 10));
+          await Promise.allSettled(batch.map(frame => loadImage(frame)));
+        }
+        
+        // Small delay to prevent blocking main thread
+        if (i < remainingFrames.length - batchSize) {
+          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+        }
+      }
+      console.debug("Background preloading complete");
+    };
+
+    // Start background loading without awaiting
+    backgroundLoader().catch(error => {
+      console.debug("Background loading error:", error);
+    });
+
+    return true;
+  }, [loadImage, totalFrames]);
+
+  // Start background preloading immediately on component mount
+  useEffect(() => {
+    // Store the promise to track preloading
+    preloadPromiseRef.current = preloadAllFramesInBackground();
+    
+    return () => {
+      // Cleanup if component unmounts
+      isPreloadingRef.current = false;
+    };
+  }, [preloadAllFramesInBackground]);
+
+  // Smart frame loader - loads frames around current position
+  const preloadAroundCurrentFrame = useCallback((centerFrame) => {
+    if (!isPreloadingRef.current) return;
+
+    const preloadRange = 25; // Preload more frames around current position
+    const startFrame = Math.max(1, centerFrame - preloadRange);
+    const endFrame = Math.min(totalFrames, centerFrame + preloadRange);
+    
+    // Use requestIdleCallback for background loading
+    const idlePreload = () => {
+      for (let i = startFrame; i <= endFrame; i++) {
+        if (!loadedFramesRef.current.has(i) && !imagesRef.current[i]) {
+          // Load without awaiting
+          loadImage(i).catch(() => {});
+        }
+      }
+    };
+
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(idlePreload, { timeout: 500 });
+    } else {
+      // Fallback: Use setTimeout to yield to main thread
+      setTimeout(idlePreload, 0);
+    }
+  }, [loadImage, totalFrames]);
+
+  // Draw frame on canvas with smart fallback
+  const drawFrame = useCallback(async (frameNum) => {
     const canvas = canvasRef.current;
     if (!canvas || !isActive) return;
 
     const ctx = canvas.getContext("2d");
-    const img = await loadFrame(frameNum);
+    
+    // Get the requested frame or nearest available
+    let frameImg = imagesRef.current[frameNum];
+    let actualFrame = frameNum;
+    
+    // If frame not loaded, find nearest loaded frame
+    if (!frameImg) {
+      for (let offset = 1; offset < 50; offset++) {
+        const prevFrame = frameNum - offset;
+        const nextFrame = frameNum + offset;
+        
+        if (prevFrame >= 1 && imagesRef.current[prevFrame]) {
+          frameImg = imagesRef.current[prevFrame];
+          actualFrame = prevFrame;
+          break;
+        }
+        if (nextFrame <= totalFrames && imagesRef.current[nextFrame]) {
+          frameImg = imagesRef.current[nextFrame];
+          actualFrame = nextFrame;
+          break;
+        }
+      }
+    }
 
-    if (img) {
+    if (frameImg) {
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Calculate dimensions to maintain aspect ratio
       const canvasAspect = canvas.width / canvas.height;
-      const imgAspect = img.width / img.height;
+      const imgAspect = frameImg.width / frameImg.height;
 
       let drawWidth, drawHeight, offsetX, offsetY;
 
       if (imgAspect > canvasAspect) {
         // Image is wider than canvas
         drawHeight = canvas.height;
-        drawWidth = img.width * (canvas.height / img.height);
+        drawWidth = frameImg.width * (canvas.height / frameImg.height);
         offsetX = -(drawWidth - canvas.width) / 2;
         offsetY = 0;
       } else {
         // Image is taller than canvas
         drawWidth = canvas.width;
-        drawHeight = img.height * (canvas.width / img.width);
+        drawHeight = frameImg.height * (canvas.width / frameImg.width);
         offsetX = 0;
         offsetY = -(drawHeight - canvas.height) / 2;
       }
 
       // Draw image
-      ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+      ctx.drawImage(frameImg, offsetX, offsetY, drawWidth, drawHeight);
 
       // Add overlay effect for better text readability
       ctx.fillStyle = "rgba(10, 10, 26, 0.4)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Preload frames around current position in background
+      if (actualFrame !== frameNum) {
+        // If we're showing a different frame, prioritize loading the correct one
+        loadImage(frameNum).catch(() => {});
+      }
+      preloadAroundCurrentFrame(frameNum);
+    } else {
+      // No frames loaded yet, show solid background
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#0a0a1a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-  };
+  }, [isActive, totalFrames, loadImage, preloadAroundCurrentFrame]);
 
   // Check if component is in view
-  const checkIfActive = () => {
-    if (!containerRef.current || !isLoaded) return;
+  const checkIfActive = useCallback(() => {
+    if (!containerRef.current) return;
 
     const container = containerRef.current;
     const rect = container.getBoundingClientRect();
@@ -108,10 +258,10 @@ const RocketCanvas = () => {
     } else if (!isInView && isActive) {
       setIsActive(false);
     }
-  };
+  }, [isActive, drawFrame]);
 
   // Handle scroll within active component
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!isActive || !containerRef.current) return;
 
     const container = containerRef.current;
@@ -125,8 +275,11 @@ const RocketCanvas = () => {
       windowHeight - rect.top,
       windowHeight,
     );
-    const scrollProgress =
-      visibleTop / (rect.height - windowHeight + visibleHeight);
+    
+    // Avoid division by zero
+    const denominator = rect.height - windowHeight + visibleHeight;
+    const scrollProgress = denominator > 0 ? 
+      Math.max(0, Math.min(1, visibleTop / denominator)) : 0;
 
     // Calculate frame based on scroll progress
     const targetFrame = Math.min(
@@ -137,12 +290,20 @@ const RocketCanvas = () => {
     if (targetFrame !== frameCountRef.current) {
       frameCountRef.current = targetFrame;
       setCurrentFrame(targetFrame);
-      drawFrame(targetFrame);
+      
+      // Use requestAnimationFrame for smooth drawing
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
+      
+      animationIdRef.current = requestAnimationFrame(() => {
+        drawFrame(targetFrame);
+      });
     }
-  };
+  }, [isActive, totalFrames, drawFrame]);
 
   // Handle resize
-  const handleResize = () => {
+  const handleResize = useCallback(() => {
     const canvas = canvasRef.current;
     if (canvas) {
       canvas.width = window.innerWidth;
@@ -151,12 +312,10 @@ const RocketCanvas = () => {
         drawFrame(frameCountRef.current);
       }
     }
-  };
+  }, [isActive, drawFrame]);
 
   // Setup event listeners
   useEffect(() => {
-    if (!isLoaded) return;
-
     const combinedScrollHandler = () => {
       checkIfActive();
       if (isActive) {
@@ -164,23 +323,38 @@ const RocketCanvas = () => {
       }
     };
 
+    // Throttle scroll events for performance
+    let scrollTimeout;
+    const throttledScrollHandler = () => {
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
+      scrollTimeout = requestAnimationFrame(combinedScrollHandler);
+    };
+
     // Initial setup
     handleResize();
 
     // Add event listeners
-    window.addEventListener("scroll", combinedScrollHandler, { passive: true });
+    window.addEventListener("scroll", throttledScrollHandler, { passive: true });
     window.addEventListener("resize", handleResize);
 
+    // Initial check
+    checkIfActive();
+
     return () => {
-      window.removeEventListener("scroll", combinedScrollHandler);
+      window.removeEventListener("scroll", throttledScrollHandler);
       window.removeEventListener("resize", handleResize);
+      if (scrollTimeout) {
+        cancelAnimationFrame(scrollTimeout);
+      }
       if (animationIdRef.current) {
         cancelAnimationFrame(animationIdRef.current);
       }
     };
-  }, [isLoaded, isActive]);
+  }, [checkIfActive, handleScroll, handleResize]);
 
-  // UI Overlay Content - Only show when active
+  // UI Overlay Content - Always show content, animation loads in background
   const OverlayContent = () => (
     <div className="rocket-overlay-content">
       <div className="scrolling-content">
@@ -278,23 +452,20 @@ const RocketCanvas = () => {
     <div
       className="rocket-animation-container"
       ref={containerRef}
-      style={{ height: "200vh" }} // Make it taller for longer scroll animation
+      style={{ height: "200vh" }}
     >
       <canvas
         ref={canvasRef}
         className="rocket-canvas"
-        style={{ display: isActive ? "block" : "none" }} // Hide canvas when not active
+        style={{ 
+          display: isActive ? "block" : "none",
+          opacity: 1
+        }}
       />
 
       <div className="rocket-overlay">
-        {isLoaded ? (
-          <OverlayContent />
-        ) : (
-          <div className="loading-overlay">
-            <div className="loading-spinner"></div>
-            <p>Loading rocket animation...</p>
-          </div>
-        )}
+        {/* Always show content, no loading screen */}
+        <OverlayContent />
       </div>
     </div>
   );
