@@ -1,0 +1,500 @@
+/* MoonScrollAnimation.css - FIXED VERSION */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow-x: hidden;
+  color: white;
+  background-color: #000000;
+}
+
+/* Main container for moon component */
+.moon-component-container {
+  position: relative;
+  background: #000000;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.moon-scroll-container {
+  position: relative;
+  min-height: 600vh;
+  width: 100%;
+}
+
+/* Loading overlay */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  background-color: #000;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay p {
+  color: #fff;
+  font-size: 1.2rem;
+  letter-spacing: 2px;
+}
+
+/* Moon background - Fixed positioning and z-index */
+/* Moon background - Fixed positioning and z-index */
+.moon-background {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 40vmin;
+  height: 40vmin;
+  /* Background image defined here only - no inline styles */
+  background-image: url("https://akm-img-a-in.tosshub.com/sites/interactive/immersive/ride-on-the-moon/assest/img/moon.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center;
+  transition:
+    transform 0.1s ease-out,
+    opacity 0.5s ease,
+    filter 0.3s ease,
+    box-shadow 0.3s ease;
+  z-index: 2;
+  will-change: transform;
+  visibility: visible;
+  opacity: 0; /* Start hidden, will be shown after loading */
+  
+  /* REMOVE border-radius - this was creating the circle */
+  /* border-radius: 50%; */
+  
+  /* Change the glow to be outer instead of inset */
+  box-shadow:
+    0 0 80px rgba(255, 255, 255, 0.4),
+    0 0 120px rgba(255, 255, 255, 0.2);
+  
+  /* Ensure no duplicate backgrounds */
+  background-color: transparent;
+  
+  /* Add a circular mask */
+  mask-image: radial-gradient(circle, white 100%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle, white 100%, transparent 100%);
+}
+
+/* Fixed Header at the top - Above moon */
+.fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 100;
+  padding: 0.8rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header-logo {
+  display: flex;
+  flex-direction: column;
+  line-height: 0.8;
+}
+
+.header-logo-top,
+.header-logo-bottom {
+  font-family: "Times New Roman", serif;
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #fff;
+}
+
+.header-logo-bottom {
+  color: #ff0000;
+}
+
+.header-info {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.header-interactive {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.header-date {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Initial content section - Above moon but below header */
+.initial-content {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem 3rem;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+/* Main heading */
+.main-heading {
+  text-align: center;
+  margin-top: -4rem;
+  opacity: 1;
+}
+
+.heading-line-1,
+.heading-line-2 {
+  font-size: 5.5rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 3px 3px 10px rgba(0, 0, 0, 0.9);
+}
+
+.heading-line-2 {
+  color: #ffcc00;
+  margin-top: -0.5rem;
+}
+
+.subheading {
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: 4px;
+  margin-top: 1rem;
+  color: #fff;
+  text-transform: uppercase;
+  text-shadow: 1px 1px 5px rgba(0, 0, 0, 0.8);
+}
+
+/* Story credits */
+.story-credits {
+  position: absolute;
+  bottom: 8rem;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 3rem;
+  max-width: 100%;
+  pointer-events: auto;
+}
+
+.credit {
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 0.8rem 1.2rem;
+  border-radius: 2px;
+  max-width: 45%;
+  backdrop-filter: blur(2px);
+}
+
+.credit-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 0.3rem;
+}
+
+.credit-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Scroll indicator */
+.scroll-indicator {
+  position: absolute;
+  bottom: 3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  z-index: 60;
+}
+
+.scroll-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.3s ease;
+}
+
+.scroll-button:hover {
+  transform: translateY(5px);
+}
+
+.scroll-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+}
+
+.scroll-arrow {
+  font-size: 1.8rem;
+  color: rgba(255, 255, 255, 0.9);
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%,
+  20%,
+  50%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-10px);
+  }
+  60% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Website URL */
+.website-url {
+  position: absolute;
+  bottom: 1.5rem;
+  right: 3rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 0.3rem 0.6rem;
+  border-radius: 2px;
+}
+
+/* Content container - This is what scrolls */
+.content-container {
+  position: relative;
+  z-index: 40;
+  margin-top: 200vh;
+  min-height: 500vh;
+  pointer-events: none;
+}
+
+/* Scrolling content - Individual sections */
+.scrolling-content {
+  position: relative;
+  width: 100%;
+  padding: 0 3rem 3rem;
+  color: #eee;
+  opacity: 1;
+  transform: translateY(50px);
+  transition: opacity 1s ease, transform 0.8s ease;
+  margin-bottom: 4rem;
+  pointer-events: auto;
+}
+
+/* .scrolling-content.visible {
+  opacity: 1;
+  transform: translateY(0);
+} */
+
+.scrolling-section {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  border-radius: 8px;
+}
+
+.scrolling-section h3 {
+  font-size: 2.2rem;
+  color: #ffcc00;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #333;
+}
+
+.scrolling-section p {
+  font-size: 15px;
+  line-height: 1.8;
+  margin-bottom: 2rem;
+  color: black;
+  background: white;
+  border-radius: 10px;
+  padding: 10px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Fade-out section at the end of moon component */
+.moon-component-end {
+  height: 100vh;
+  background: linear-gradient(to bottom, transparent 0%, #0a0a1a 100%);
+  position: relative;
+  z-index: 45;
+  margin-top: -100px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .moon-background {
+    width: 50vmin;
+    height: 50vmin;
+  }
+}
+
+@media (max-width: 768px) {
+  .initial-content {
+    padding: 1.5rem;
+  }
+
+  .fixed-header {
+    padding: 0.6rem 1.5rem;
+  }
+
+  .header-logo-top,
+  .header-logo-bottom {
+    font-size: 1.5rem;
+  }
+
+  .heading-line-1,
+  .heading-line-2 {
+    font-size: 4rem;
+  }
+
+  .subheading {
+    font-size: 1rem;
+    letter-spacing: 2px;
+    padding: 0 1rem;
+  }
+
+  .story-credits {
+    padding: 0 1.5rem;
+    bottom: 6rem;
+  }
+
+  .scrolling-content {
+    padding: 0 1.5rem 3rem;
+  }
+  
+  .scrolling-section p {
+    font-size: 1.3rem;
+    padding: 1.5rem;
+  }
+
+  .moon-background {
+    width: 60vmin;
+    height: 60vmin;
+  }
+
+  .credit {
+    max-width: 48%;
+  }
+
+  .content-container {
+    min-height: 600vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .heading-line-1,
+  .heading-line-2 {
+    font-size: 3rem;
+  }
+
+  .main-heading {
+    margin-top: -2rem;
+  }
+
+  .website-url {
+    right: 1.5rem;
+    font-size: 0.8rem;
+  }
+
+  .moon-background {
+    width: 70vmin;
+    height: 70vmin;
+  }
+
+  .fixed-header {
+    padding: 0.5rem 1rem;
+  }
+
+  .header-logo-top,
+  .header-logo-bottom {
+    font-size: 1.3rem;
+  }
+
+  .header-info {
+    flex-direction: column;
+    gap: 0.3rem;
+    align-items: flex-end;
+  }
+
+  .story-credits {
+    flex-direction: column;
+    gap: 1rem;
+    bottom: 7rem;
+  }
+
+  .credit {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .scrolling-section {
+    padding: 1rem;
+  }
+  
+  .scrolling-section p {
+    font-size: 1.1rem;
+    padding: 1rem;
+  }
+}
